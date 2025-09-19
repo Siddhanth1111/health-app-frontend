@@ -1,14 +1,32 @@
-export const API_BASE_URL = 'http://localhost:3000/api';
-export const SOCKET_URL = 'http://localhost:3000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://health-app-backend-xuv7.onrender.com/api';
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://health-app-backend-xuv7.onrender.com';
 
 export const ROUTES = {
   HOME: '/',
-  LOGIN: '/login',
+  SIGN_IN: '/sign-in',
+  SIGN_UP: '/sign-up',
   DASHBOARD: '/dashboard',
-  CALL: '/call/:targetUserId',
+  DOCTORS: '/doctors',
+  CALL: '/call/:doctorId',
   PROFILE: '/profile',
+  CONSULTATIONS: '/consultations',
   NOT_FOUND: '*'
 };
+
+export const DOCTOR_SPECIALTIES = [
+  'General Physician',
+  'Cardiologist',
+  'Dermatologist',
+  'Pediatrician',
+  'Orthopedic',
+  'Gastroenterologist',
+  'Neurologist',
+  'Psychiatrist',
+  'Gynecologist',
+  'ENT Specialist',
+  'Ophthalmologist',
+  'Urologist'
+];
 
 export const SOCKET_EVENTS = {
   CONNECT: 'connect',
@@ -18,7 +36,12 @@ export const SOCKET_EVENTS = {
   INCOMING_CALL: 'incoming-call',
   CALL_RESPONSE: 'call-response',
   CALLING: 'calling',
-  USER_STATUS_CHANGED: 'user-status-changed'
+  DOCTOR_STATUS_CHANGED: 'doctor-status-changed'
+};
+
+export const USER_TYPES = {
+  PATIENT: 'patient',
+  DOCTOR: 'doctor'
 };
 
 export const CALL_STATUS = {

@@ -1,17 +1,12 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { FaVideo, FaSignOutAlt, FaUser, FaHome } from 'react-icons/fa';
-import { useAuth } from '../../hooks/useAuth';
-import { useSocket } from '../../hooks/useSocket';
+import { Link } from 'react-router-dom';
+import { useAuth, useUser, SignOutButton } from '@clerk/clerk-react';
+import { useSocket } from '../../context/SocketContext';
 
 const Header = () => {
-  const { currentUser, logout } = useAuth();
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
   const { isConnected } = useSocket();
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-  };
 
   return (
     <header className="bg-white shadow-lg border-b">
@@ -19,8 +14,8 @@ const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
-            <FaVideo className="text-blue-500 text-2xl" />
-            <span className="text-xl font-bold text-gray-800">VideoCall Pro</span>
+            <span className="text-2xl">🏥</span>
+            <span className="text-xl font-bold text-gray-800">MedConsult</span>
           </Link>
 
           {/* Navigation & Status */}
@@ -34,14 +29,22 @@ const Header = () => {
             </div>
 
             {/* User Info */}
-            {currentUser && (
+            {isSignedIn ? (
               <>
                 <Link 
                   to="/dashboard"
                   className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
                 >
-                  <FaHome />
+                  <span>🏠</span>
                   <span>Dashboard</span>
+                </Link>
+                
+                <Link 
+                  to="/doctors"
+                  className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
+                >
+                  <span>👨‍⚕️</span>
+                  <span>Doctors</span>
                 </Link>
                 
                 <Link 
@@ -49,21 +52,35 @@ const Header = () => {
                   className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
                 >
                   <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
+                    src={user?.imageUrl}
+                    alt={user?.fullName}
                     className="w-6 h-6 rounded-full"
                   />
-                  <span>{currentUser.name}</span>
+                  <span>{user?.firstName || user?.fullName}</span>
                 </Link>
                 
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center space-x-2 text-gray-600 hover:text-red-500 transition-colors"
-                >
-                  <FaSignOutAlt />
-                  <span>Logout</span>
-                </button>
+                <SignOutButton>
+                  <button className="flex items-center space-x-2 text-gray-600 hover:text-red-500 transition-colors">
+                    <span>🚪</span>
+                    <span>Logout</span>
+                  </button>
+                </SignOutButton>
               </>
+            ) : (
+              <div className="flex items-center space-x-4">
+                <Link 
+                  to="/sign-in"
+                  className="text-gray-600 hover:text-blue-500 transition-colors"
+                >
+                  Sign In
+                </Link>
+                <Link 
+                  to="/sign-up"
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Sign Up
+                </Link>
+              </div>
             )}
           </div>
         </div>
