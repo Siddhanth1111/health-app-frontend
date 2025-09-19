@@ -1,6 +1,5 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import ApiService from '../services/api';
 
@@ -11,30 +10,35 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 const SocketContext = createContext({
   socket: null,
   isConnected: false,
+  isRegistered: false,
   onlineDoctors: new Set(),
   incomingCall: null,
   currentCall: null,
   userType: null,
+  userData: null,
   registerUser: () => {},
   initiateCall: () => {},
   acceptCall: () => {},
   rejectCall: () => {},
-  endCall: () => {}
+  endCall: () => {},
+  // WebRTC helpers for VideoCall component
+  emitWebRTC: () => {}
 });
 
 // Provider component
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
   const [onlineDoctors, setOnlineDoctors] = useState(new Set());
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCall, setCurrentCall] = useState(null);
   const [userType, setUserType] = useState(null);
-  const [isRegistered, setIsRegistered] = useState(false);
+  const [userData, setUserData] = useState(null);
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
 
-  // Get user profile and connect socket
+  // Initialize socket connection and user registration
   useEffect(() => {
     const initializeSocket = async () => {
       if (!isSignedIn || !user) {
@@ -45,6 +49,9 @@ export const SocketProvider = ({ children }) => {
           setIsConnected(false);
           setIsRegistered(false);
           setUserType(null);
+          setUserData(null);
+          setIncomingCall(null);
+          setCurrentCall(null);
         }
         return;
       }
@@ -53,12 +60,28 @@ export const SocketProvider = ({ children }) => {
         // Get user profile to determine user type
         console.log('👤 Getting user profile...');
         const token = await getToken();
-        const userData = await ApiService.getCurrentUser(token);
+        let userProfile;
         
-        console.log('📋 User data:', userData);
-        setUserType(userData.userType);
+        try {
+          userProfile = await ApiService.getCurrentUser(token);
+          console.log('📋 User profile loaded:', userProfile);
+        } catch (err) {
+          console.warn('Could not load user profile:', err);
+          // Create basic user data from Clerk user
+          userProfile = {
+            _id: user.id,
+            name: user.fullName || user.firstName || 'User',
+            email: user.emailAddresses?.[0]?.emailAddress || '',
+            avatar: user.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || 'User')}&background=4f46e5&color=fff&size=150`,
+            userType: 'patient', // Default assumption
+            clerkUserId: user.id
+          };
+        }
+        
+        setUserData(userProfile);
+        setUserType(userProfile.userType);
 
-        if (userData.needsOnboarding) {
+        if (userProfile.needsOnboarding) {
           console.log('⚠️ User needs onboarding, skipping socket connection');
           return;
         }
@@ -82,12 +105,12 @@ export const SocketProvider = ({ children }) => {
           setIsConnected(true);
           
           // Auto-register user when connected
-          if (userData.userType && !isRegistered) {
-            console.log('📝 Auto-registering user:', userData.userType);
+          if (userProfile.userType && !isRegistered) {
+            console.log('📝 Auto-registering user:', userProfile.userType);
             socketInstance.emit('register-user', {
               userId: user.id,
-              userType: userData.userType,
-              userName: userData.name || user.fullName || user.firstName || 'User'
+              userType: userProfile.userType,
+              userName: userProfile.name || user.fullName || user.firstName || 'User'
             });
           }
         });
@@ -142,7 +165,7 @@ export const SocketProvider = ({ children }) => {
           });
           stopRingtone();
           
-          // Navigate to call room - this is the key fix!
+          // Navigate to call room
           const callRoomId = data.callRoomId;
           console.log('📱 Navigating to call room:', callRoomId);
           
@@ -176,6 +199,18 @@ export const SocketProvider = ({ children }) => {
           alert(`Call failed: ${data.reason}`);
         });
 
+        // WebRTC signaling events (for VideoCall component)
+        socketInstance.on('calling', (data) => {
+          console.log('📞 WebRTC calling event received:', data);
+          // This will be handled by the VideoCall component directly
+          // The event is already forwarded to the component via the socket prop
+        });
+
+        socketInstance.on('user-not-available', (data) => {
+          console.log('❌ User not available for WebRTC:', data);
+          alert('User is not available for video call');
+        });
+
         // Doctor status events
         socketInstance.on('doctor-status-changed', (data) => {
           console.log('👨‍⚕️ Doctor status changed:', data);
@@ -190,6 +225,24 @@ export const SocketProvider = ({ children }) => {
           });
         });
 
+        // Error handling
+        socketInstance.on('error', (error) => {
+          console.error('❌ Socket error:', error);
+        });
+
+        // Handle socket reconnection
+        socketInstance.on('reconnect', () => {
+          console.log('🔄 Socket reconnected');
+          // Re-register user on reconnection
+          if (userProfile.userType) {
+            socketInstance.emit('register-user', {
+              userId: user.id,
+              userType: userProfile.userType,
+              userName: userProfile.name || user.fullName || user.firstName || 'User'
+            });
+          }
+        });
+
       } catch (error) {
         console.error('❌ Error initializing socket:', error);
       }
@@ -197,6 +250,7 @@ export const SocketProvider = ({ children }) => {
 
     initializeSocket();
 
+    // Cleanup on unmount or dependency change
     return () => {
       if (socket) {
         console.log('🔌 Cleaning up socket connection');
@@ -208,17 +262,24 @@ export const SocketProvider = ({ children }) => {
         setCurrentCall(null);
       }
     };
-  }, [isSignedIn, user?.id]);
+  }, [isSignedIn, user?.id]); // Only depend on sign-in status and user ID
 
   // Ringtone functions
-  const playRingtone = () => {
+  const playRingtone = useCallback(() => {
     console.log('🔊 Playing ringtone...');
-  };
+    // You can implement actual audio playback here
+    // Example:
+    // const audio = new Audio('/ringtone.mp3');
+    // audio.loop = true;
+    // audio.play().catch(console.warn);
+  }, []);
 
-  const stopRingtone = () => {
+  const stopRingtone = useCallback(() => {
     console.log('🔇 Stopping ringtone...');
-  };
+    // Stop the ringtone audio here
+  }, []);
 
+  // Manual user registration (if needed)
   const registerUser = useCallback(async (forceUserType = null) => {
     if (socket && isConnected && user && (userType || forceUserType) && !isRegistered) {
       const typeToUse = forceUserType || userType;
@@ -227,18 +288,27 @@ export const SocketProvider = ({ children }) => {
       socket.emit('register-user', {
         userId: user.id,
         userType: typeToUse,
-        userName: user.fullName || user.firstName || 'User'
+        userName: userData?.name || user.fullName || user.firstName || 'User'
+      });
+    } else {
+      console.warn('⚠️ Cannot register user - missing requirements:', {
+        socket: !!socket,
+        isConnected,
+        user: !!user,
+        userType: userType || forceUserType,
+        isRegistered
       });
     }
-  }, [socket, isConnected, user, userType, isRegistered]);
+  }, [socket, isConnected, user, userType, userData, isRegistered]);
 
+  // Initiate a call
   const initiateCall = useCallback((targetUserId, targetUserName) => {
     if (socket && isConnected && user && isRegistered) {
       console.log('📞 Initiating call to:', targetUserId);
       socket.emit('initiate-call', {
         targetUserId,
         fromUserId: user.id,
-        fromUserName: user.fullName || user.firstName || 'User',
+        fromUserName: userData?.name || user.fullName || user.firstName || 'User',
         fromUserType: userType || 'patient'
       });
     } else {
@@ -250,8 +320,9 @@ export const SocketProvider = ({ children }) => {
       });
       alert('Not connected to server. Please refresh the page and try again.');
     }
-  }, [socket, isConnected, user, userType, isRegistered]);
+  }, [socket, isConnected, user, userType, userData, isRegistered]);
 
+  // Accept an incoming call
   const acceptCall = useCallback(() => {
     if (socket && incomingCall && user) {
       console.log('✅ Accepting call:', incomingCall.callRoomId);
@@ -263,6 +334,7 @@ export const SocketProvider = ({ children }) => {
     }
   }, [socket, incomingCall, user]);
 
+  // Reject an incoming call
   const rejectCall = useCallback(() => {
     if (socket && incomingCall && user) {
       console.log('❌ Rejecting call:', incomingCall.callRoomId);
@@ -274,8 +346,9 @@ export const SocketProvider = ({ children }) => {
       setIncomingCall(null);
       stopRingtone();
     }
-  }, [socket, incomingCall, user]);
+  }, [socket, incomingCall, user, stopRingtone]);
 
+  // End a call
   const endCall = useCallback(() => {
     if (socket && (currentCall || incomingCall) && user) {
       const callRoomId = currentCall?.callRoomId || incomingCall?.callRoomId;
@@ -288,20 +361,63 @@ export const SocketProvider = ({ children }) => {
       setIncomingCall(null);
       stopRingtone();
     }
-  }, [socket, currentCall, incomingCall, user]);
+  }, [socket, currentCall, incomingCall, user, stopRingtone]);
 
+  // Helper for VideoCall component to emit WebRTC events
+  const emitWebRTC = useCallback((eventName, data) => {
+    if (socket && isConnected) {
+      console.log('📡 Emitting WebRTC event:', eventName, data);
+      socket.emit(eventName, data);
+    } else {
+      console.warn('⚠️ Cannot emit WebRTC event - socket not connected');
+    }
+  }, [socket, isConnected]);
+
+  // Helper to get current user data in format expected by VideoCall
+  const getCurrentUserForVideoCall = useCallback(() => {
+    if (!userData || !user) return null;
+    
+    return {
+      _id: userData._id || user.id,
+      name: userData.name || user.fullName || user.firstName || 'User',
+      email: userData.email || user.emailAddresses?.[0]?.emailAddress || '',
+      avatar: userData.avatar || user.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.name || 'User')}&background=4f46e5&color=fff&size=150`,
+      userType: userData.userType || 'patient'
+    };
+  }, [userData, user]);
+
+  // Context value
   const value = {
+    // Socket connection
     socket,
-    isConnected: isConnected && isRegistered,
+    isConnected: isConnected && isRegistered, // Only show connected when registered
+    isRegistered,
+    
+    // User data
+    userType,
+    userData,
+    getCurrentUserForVideoCall,
+    
+    // Doctor status
     onlineDoctors,
+    
+    // Call management
     incomingCall,
     currentCall,
-    userType,
+    
+    // Call actions
     registerUser,
     initiateCall,
     acceptCall,
     rejectCall,
-    endCall
+    endCall,
+    
+    // WebRTC helper
+    emitWebRTC,
+    
+    // Audio helpers
+    playRingtone,
+    stopRingtone
   };
 
   return (
@@ -320,4 +436,8 @@ export const useSocket = () => {
   return context;
 };
 
+// Export context for direct access if needed
 export { SocketContext };
+
+// Default export
+export default SocketProvider;
