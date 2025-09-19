@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 
@@ -17,36 +17,9 @@ import ConsultationsPage from './pages/ConsultationsPage';
 import Loading from './components/common/Loading';
 import Header from './components/common/Header';
 import Footer from './components/common/Footer';
+import IncomingCallModal from './components/video/IncomingCallModal';
 
-// Lazy load SocketProvider to avoid build issues
-const LazySocketProvider = React.lazy(() => 
-  import('./context/SocketContext').then(module => ({ 
-    default: module.SocketProvider 
-  }))
-);
-
-// Fallback SocketProvider that does nothing
-const FallbackSocketProvider = ({ children }) => children;
-
-// Safe SocketProvider wrapper
-const SafeSocketProvider = ({ children }) => {
-  const { isSignedIn } = useAuth();
-  
-  if (!isSignedIn) {
-    return <FallbackSocketProvider>{children}</FallbackSocketProvider>;
-  }
-
-  return (
-    <Suspense fallback={<FallbackSocketProvider>{children}</FallbackSocketProvider>}>
-      <LazySocketProvider>
-        {children}
-      </LazySocketProvider>
-    </Suspense>
-  );
-};
-
-// App Content Component
-const AppContent = () => {
+function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
   // Show loading while Clerk is initializing
@@ -55,7 +28,7 @@ const AppContent = () => {
   }
 
   return (
-    <SafeSocketProvider>
+    <Router>
       <div className="min-h-screen bg-gray-50">
         <Header />
         <main className="flex-1">
@@ -114,15 +87,10 @@ const AppContent = () => {
           </Routes>
         </main>
         <Footer />
+        
+        {/* Global Incoming Call Modal */}
+        <IncomingCallModal />
       </div>
-    </SafeSocketProvider>
-  );
-};
-
-function App() {
-  return (
-    <Router>
-      <AppContent />
     </Router>
   );
 }
