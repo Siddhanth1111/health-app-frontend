@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { io } from 'socket.io-client';
+import ApiService from '../services/api';
 
 // Get socket URL from environment
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
@@ -12,6 +13,7 @@ const SocketContext = createContext({
   onlineDoctors: new Set(),
   incomingCall: null,
   currentCall: null,
+  userType: null,
   registerUser: () => {},
   initiateCall: () => {},
   acceptCall: () => {},
@@ -26,150 +28,193 @@ export const SocketProvider = ({ children }) => {
   const [onlineDoctors, setOnlineDoctors] = useState(new Set());
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCall, setCurrentCall] = useState(null);
-  const { isSignedIn } = useAuth();
+  const [userType, setUserType] = useState(null);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
 
+  // Get user profile and connect socket
   useEffect(() => {
-    if (!isSignedIn || !user) {
+    const initializeSocket = async () => {
+      if (!isSignedIn || !user) {
+        if (socket) {
+          console.log('🔌 Disconnecting socket - user not signed in');
+          socket.disconnect();
+          setSocket(null);
+          setIsConnected(false);
+          setIsRegistered(false);
+          setUserType(null);
+        }
+        return;
+      }
+
+      try {
+        // Get user profile to determine user type
+        console.log('👤 Getting user profile...');
+        const token = await getToken();
+        const userData = await ApiService.getCurrentUser(token);
+        
+        console.log('📋 User data:', userData);
+        setUserType(userData.userType);
+
+        if (userData.needsOnboarding) {
+          console.log('⚠️ User needs onboarding, skipping socket connection');
+          return;
+        }
+
+        // Connect to socket
+        console.log('🔌 Connecting to socket:', SOCKET_URL);
+        const socketInstance = io(SOCKET_URL, {
+          transports: ["websocket", "polling"],
+          timeout: 10000,
+          forceNew: true,
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
+        });
+
+        setSocket(socketInstance);
+
+        // Connection events
+        socketInstance.on('connect', () => {
+          console.log('✅ Socket connected:', socketInstance.id);
+          setIsConnected(true);
+          
+          // Auto-register user when connected
+          if (userData.userType && !isRegistered) {
+            console.log('📝 Auto-registering user:', userData.userType);
+            socketInstance.emit('register-user', {
+              userId: user.id,
+              userType: userData.userType,
+              userName: userData.name || user.fullName || user.firstName || 'User'
+            });
+          }
+        });
+
+        socketInstance.on('disconnect', (reason) => {
+          console.log('❌ Socket disconnected:', reason);
+          setIsConnected(false);
+          setIsRegistered(false);
+          setIncomingCall(null);
+          setCurrentCall(null);
+        });
+
+        socketInstance.on('connect_error', (error) => {
+          console.error('❌ Socket connection error:', error);
+          setIsConnected(false);
+          setIsRegistered(false);
+        });
+
+        // Registration events
+        socketInstance.on('user-registered', (data) => {
+          console.log('✅ User registration confirmed:', data);
+          setIsRegistered(true);
+        });
+
+        socketInstance.on('registration-error', (error) => {
+          console.error('❌ Registration error:', error);
+          setIsRegistered(false);
+        });
+
+        // Call-related events
+        socketInstance.on('incoming-call', (data) => {
+          console.log('📞 Incoming call received:', data);
+          setIncomingCall(data);
+          playRingtone();
+        });
+
+        socketInstance.on('call-initiated', (data) => {
+          console.log('📞 Call initiated successfully:', data);
+          setCurrentCall({
+            ...data,
+            status: 'ringing',
+            isInitiator: true
+          });
+        });
+
+        socketInstance.on('call-accepted', (data) => {
+          console.log('✅ Call accepted:', data);
+          setIncomingCall(null);
+          setCurrentCall({
+            ...data,
+            status: 'connected'
+          });
+          stopRingtone();
+        });
+
+        socketInstance.on('call-rejected', (data) => {
+          console.log('❌ Call rejected:', data);
+          setCurrentCall(null);
+          setIncomingCall(null);
+          stopRingtone();
+          alert('Call was rejected');
+        });
+
+        socketInstance.on('call-ended', (data) => {
+          console.log('📞 Call ended:', data);
+          setCurrentCall(null);
+          setIncomingCall(null);
+          stopRingtone();
+        });
+
+        socketInstance.on('call-failed', (data) => {
+          console.log('❌ Call failed:', data);
+          setCurrentCall(null);
+          alert(`Call failed: ${data.reason}`);
+        });
+
+        // Doctor status events
+        socketInstance.on('doctor-status-changed', (data) => {
+          console.log('👨‍⚕️ Doctor status changed:', data);
+          setOnlineDoctors(prev => {
+            const newSet = new Set(prev);
+            if (data.isOnline) {
+              newSet.add(data.doctorId);
+            } else {
+              newSet.delete(data.doctorId);
+            }
+            return newSet;
+          });
+        });
+
+      } catch (error) {
+        console.error('❌ Error initializing socket:', error);
+      }
+    };
+
+    initializeSocket();
+
+    return () => {
       if (socket) {
-        console.log('🔌 Disconnecting socket - user not signed in');
+        console.log('🔌 Cleaning up socket connection');
         socket.disconnect();
         setSocket(null);
         setIsConnected(false);
+        setIsRegistered(false);
+        setIncomingCall(null);
+        setCurrentCall(null);
       }
-      return;
-    }
-
-    console.log('🔌 Attempting to connect to socket:', SOCKET_URL);
-
-    const socketInstance = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      timeout: 10000,
-      forceNew: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
-
-    setSocket(socketInstance);
-
-    // Connection events
-    socketInstance.on('connect', () => {
-      console.log('✅ Socket connected:', socketInstance.id);
-      setIsConnected(true);
-    });
-
-    socketInstance.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected:', reason);
-      setIsConnected(false);
-      setIncomingCall(null);
-      setCurrentCall(null);
-    });
-
-    socketInstance.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error);
-      setIsConnected(false);
-    });
-
-    // Call-related events
-    socketInstance.on('incoming-call', (data) => {
-      console.log('📞 Incoming call received:', data);
-      setIncomingCall(data);
-      
-      // Play ringtone sound (optional)
-      playRingtone();
-    });
-
-    socketInstance.on('call-initiated', (data) => {
-      console.log('📞 Call initiated successfully:', data);
-      setCurrentCall({
-        ...data,
-        status: 'ringing',
-        isInitiator: true
-      });
-    });
-
-    socketInstance.on('call-accepted', (data) => {
-      console.log('✅ Call accepted:', data);
-      setIncomingCall(null);
-      setCurrentCall({
-        ...data,
-        status: 'connected'
-      });
-      stopRingtone();
-    });
-
-    socketInstance.on('call-rejected', (data) => {
-      console.log('❌ Call rejected:', data);
-      setCurrentCall(null);
-      setIncomingCall(null);
-      stopRingtone();
-      alert('Call was rejected');
-    });
-
-    socketInstance.on('call-ended', (data) => {
-      console.log('📞 Call ended:', data);
-      setCurrentCall(null);
-      setIncomingCall(null);
-      stopRingtone();
-    });
-
-    socketInstance.on('call-failed', (data) => {
-      console.log('❌ Call failed:', data);
-      setCurrentCall(null);
-      alert(`Call failed: ${data.reason}`);
-    });
-
-    // Doctor status events
-    socketInstance.on('doctor-status-changed', (data) => {
-      console.log('👨‍⚕️ Doctor status changed:', data);
-      setOnlineDoctors(prev => {
-        const newSet = new Set(prev);
-        if (data.isOnline) {
-          newSet.add(data.doctorId);
-        } else {
-          newSet.delete(data.doctorId);
-        }
-        return newSet;
-      });
-    });
-
-    socketInstance.on('user-registered', (data) => {
-      console.log('✅ User registration confirmed:', data);
-    });
-
-    socketInstance.on('registration-error', (error) => {
-      console.error('❌ Registration error:', error);
-    });
-
-    return () => {
-      console.log('🔌 Cleaning up socket connection');
-      socketInstance.disconnect();
-      setSocket(null);
-      setIsConnected(false);
-      setIncomingCall(null);
-      setCurrentCall(null);
     };
-  }, [isSignedIn, user]);
+  }, [isSignedIn, user?.id]); // Only depend on sign-in status and user ID
 
   // Ringtone functions
   const playRingtone = () => {
-    // You can add actual audio here
     console.log('🔊 Playing ringtone...');
+    // Add actual audio here if needed
   };
 
   const stopRingtone = () => {
-    // Stop the ringtone
     console.log('🔇 Stopping ringtone...');
   };
 
-  const registerUser = useCallback(async (userType) => {
-    if (socket && isConnected && user && userType) {
-      console.log('📝 Registering user:', user.id, 'as', userType);
+  const registerUser = useCallback(async (forceUserType = null) => {
+    if (socket && isConnected && user && (userType || forceUserType) && !isRegistered) {
+      const typeToUse = forceUserType || userType;
+      console.log('📝 Manually registering user:', user.id, 'as', typeToUse);
       
       socket.emit('register-user', {
         userId: user.id,
-        userType: userType,
+        userType: typeToUse,
         userName: user.fullName || user.firstName || 'User'
       });
     } else {
@@ -177,25 +222,31 @@ export const SocketProvider = ({ children }) => {
         socket: !!socket,
         isConnected,
         user: !!user,
-        userType
+        userType,
+        isRegistered
       });
     }
-  }, [socket, isConnected, user]);
+  }, [socket, isConnected, user, userType, isRegistered]);
 
   const initiateCall = useCallback((targetUserId, targetUserName) => {
-    if (socket && isConnected && user) {
+    if (socket && isConnected && user && isRegistered) {
       console.log('📞 Initiating call to:', targetUserId);
       socket.emit('initiate-call', {
         targetUserId,
         fromUserId: user.id,
         fromUserName: user.fullName || user.firstName || 'User',
-        fromUserType: 'patient' // Assuming patient is calling doctor
+        fromUserType: userType || 'patient'
       });
     } else {
-      console.warn('⚠️ Cannot initiate call - socket not connected');
+      console.warn('⚠️ Cannot initiate call:', {
+        socket: !!socket,
+        isConnected,
+        user: !!user,
+        isRegistered
+      });
       alert('Not connected to server. Please refresh the page and try again.');
     }
-  }, [socket, isConnected, user]);
+  }, [socket, isConnected, user, userType, isRegistered]);
 
   const acceptCall = useCallback(() => {
     if (socket && incomingCall && user) {
@@ -237,10 +288,11 @@ export const SocketProvider = ({ children }) => {
 
   const value = {
     socket,
-    isConnected,
+    isConnected: isConnected && isRegistered, // Only show connected when registered
     onlineDoctors,
     incomingCall,
     currentCall,
+    userType,
     registerUser,
     initiateCall,
     acceptCall,
