@@ -14,7 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ClerkProvider 
       publishableKey={PUBLISHABLE_KEY}
-      afterSignInUrl="/onboarding"
+      afterSignInUrl="/dashboard"  // Fixed: was "/HomePage"
       afterSignUpUrl="/onboarding"
     >
       <App />
