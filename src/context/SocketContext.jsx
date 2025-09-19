@@ -30,11 +30,13 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [registrationAttempts, setRegistrationAttempts] = useState(0);
   const [onlineDoctors, setOnlineDoctors] = useState(new Set());
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCall, setCurrentCall] = useState(null);
   const [userType, setUserType] = useState(null);
   const [userData, setUserData] = useState(null);
+  const [lastRegistrationError, setLastRegistrationError] = useState(null);
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
 
@@ -52,6 +54,8 @@ export const SocketProvider = ({ children }) => {
           setUserData(null);
           setIncomingCall(null);
           setCurrentCall(null);
+          setRegistrationAttempts(0);
+          setLastRegistrationError(null);
         }
         return;
       }
@@ -66,14 +70,14 @@ export const SocketProvider = ({ children }) => {
           userProfile = await ApiService.getCurrentUser(token);
           console.log('📋 User profile loaded:', userProfile);
         } catch (err) {
-          console.warn('Could not load user profile:', err);
-          // Create basic user data from Clerk user
+          console.warn('Could not load user profile from API:', err);
+          // Create basic user data from Clerk user - let backend create the profile
           userProfile = {
             _id: user.id,
             name: user.fullName || user.firstName || 'User',
             email: user.emailAddresses?.[0]?.emailAddress || '',
             avatar: user.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || 'User')}&background=4f46e5&color=fff&size=150`,
-            userType: 'patient', // Default assumption
+            userType: 'patient', // Default assumption - can be overridden
             clerkUserId: user.id
           };
         }
@@ -103,15 +107,12 @@ export const SocketProvider = ({ children }) => {
         socketInstance.on('connect', () => {
           console.log('✅ Socket connected:', socketInstance.id);
           setIsConnected(true);
+          setRegistrationAttempts(0);
           
           // Auto-register user when connected
           if (userProfile.userType && !isRegistered) {
             console.log('📝 Auto-registering user:', userProfile.userType);
-            socketInstance.emit('register-user', {
-              userId: user.id,
-              userType: userProfile.userType,
-              userName: userProfile.name || user.fullName || user.firstName || 'User'
-            });
+            registerUserWithSocket(socketInstance, userProfile);
           }
         });
 
@@ -133,11 +134,28 @@ export const SocketProvider = ({ children }) => {
         socketInstance.on('user-registered', (data) => {
           console.log('✅ User registration confirmed:', data);
           setIsRegistered(true);
+          setLastRegistrationError(null);
+          setRegistrationAttempts(0);
         });
 
         socketInstance.on('registration-error', (error) => {
           console.error('❌ Registration error:', error);
-          setIsRegistered(false);
+          setLastRegistrationError(error.message);
+          setRegistrationAttempts(prev => prev + 1);
+          
+          // If it's a "profile not found" error, the backend will create it
+          // So we can retry registration after a short delay
+          if (error.message?.includes('User profile not found') && registrationAttempts < 3) {
+            console.log('🔄 Retrying registration in 2 seconds...');
+            setTimeout(() => {
+              if (socketInstance.connected && userProfile) {
+                console.log('🔄 Retrying user registration...');
+                registerUserWithSocket(socketInstance, userProfile);
+              }
+            }, 2000);
+          } else {
+            setIsRegistered(false);
+          }
         });
 
         // Call-related events
@@ -233,13 +251,10 @@ export const SocketProvider = ({ children }) => {
         // Handle socket reconnection
         socketInstance.on('reconnect', () => {
           console.log('🔄 Socket reconnected');
+          setRegistrationAttempts(0);
           // Re-register user on reconnection
           if (userProfile.userType) {
-            socketInstance.emit('register-user', {
-              userId: user.id,
-              userType: userProfile.userType,
-              userName: userProfile.name || user.fullName || user.firstName || 'User'
-            });
+            registerUserWithSocket(socketInstance, userProfile);
           }
         });
 
@@ -260,9 +275,26 @@ export const SocketProvider = ({ children }) => {
         setIsRegistered(false);
         setIncomingCall(null);
         setCurrentCall(null);
+        setRegistrationAttempts(0);
+        setLastRegistrationError(null);
       }
     };
   }, [isSignedIn, user?.id]); // Only depend on sign-in status and user ID
+
+  // Helper function to register user with socket
+  const registerUserWithSocket = useCallback((socketInstance, userProfile) => {
+    if (!socketInstance || !socketInstance.connected || !userProfile) {
+      console.warn('⚠️ Cannot register - socket not ready or missing user profile');
+      return;
+    }
+
+    console.log('📝 Registering user with socket:', userProfile.userType);
+    socketInstance.emit('register-user', {
+      userId: user.id, // Always use Clerk ID for initial registration
+      userType: userProfile.userType || 'patient',
+      userName: userProfile.name || user.fullName || user.firstName || 'User'
+    });
+  }, [user]);
 
   // Ringtone functions
   const playRingtone = useCallback(() => {
@@ -303,24 +335,46 @@ export const SocketProvider = ({ children }) => {
 
   // Initiate a call
   const initiateCall = useCallback((targetUserId, targetUserName) => {
-    if (socket && isConnected && user && isRegistered) {
-      console.log('📞 Initiating call to:', targetUserId);
-      socket.emit('initiate-call', {
-        targetUserId,
-        fromUserId: user.id,
-        fromUserName: userData?.name || user.fullName || user.firstName || 'User',
-        fromUserType: userType || 'patient'
-      });
+    if (socket && isConnected && user) {
+      console.log('📞 Initiating call to:', { targetUserId, targetUserName });
+      
+      // Always try to register first if not registered
+      if (!isRegistered) {
+        console.log('📝 Ensuring user is registered before call...');
+        socket.emit('register-user', {
+          userId: user.id,
+          userType: userData?.userType || 'patient',
+          userName: userData?.name || user.fullName || user.firstName || 'User'
+        });
+        
+        // Wait a moment for registration, then proceed with call
+        setTimeout(() => {
+          socket.emit('initiate-call', {
+            targetUserId,
+            fromUserId: user.id,
+            fromUserName: userData?.name || user.fullName || user.firstName || 'User',
+            fromUserType: userData?.userType || 'patient'
+          });
+        }, 1000);
+      } else {
+        // User is registered, proceed with call immediately
+        socket.emit('initiate-call', {
+          targetUserId,
+          fromUserId: user.id,
+          fromUserName: userData?.name || user.fullName || user.firstName || 'User',
+          fromUserType: userData?.userType || 'patient'
+        });
+      }
     } else {
       console.warn('⚠️ Cannot initiate call:', {
         socket: !!socket,
         isConnected,
         user: !!user,
-        isRegistered
+        userData: !!userData
       });
       alert('Not connected to server. Please refresh the page and try again.');
     }
-  }, [socket, isConnected, user, userType, userData, isRegistered]);
+  }, [socket, isConnected, user, userData, isRegistered]);
 
   // Accept an incoming call
   const acceptCall = useCallback(() => {
@@ -386,6 +440,16 @@ export const SocketProvider = ({ children }) => {
     };
   }, [userData, user]);
 
+  // Get registration status with details
+  const getRegistrationStatus = useCallback(() => {
+    return {
+      isRegistered,
+      attempts: registrationAttempts,
+      lastError: lastRegistrationError,
+      canRetry: registrationAttempts < 3
+    };
+  }, [isRegistered, registrationAttempts, lastRegistrationError]);
+
   // Context value
   const value = {
     // Socket connection
@@ -397,6 +461,7 @@ export const SocketProvider = ({ children }) => {
     userType,
     userData,
     getCurrentUserForVideoCall,
+    getRegistrationStatus,
     
     // Doctor status
     onlineDoctors,
@@ -417,7 +482,11 @@ export const SocketProvider = ({ children }) => {
     
     // Audio helpers
     playRingtone,
-    stopRingtone
+    stopRingtone,
+    
+    // Debug info
+    registrationAttempts,
+    lastRegistrationError
   };
 
   return (
