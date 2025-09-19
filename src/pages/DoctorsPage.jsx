@@ -5,6 +5,38 @@ import { useSocket } from '../context/SocketContext';
 import ApiService from '../services/api';
 import Loading from '../components/common/Loading';
 
+// ... existing imports and code ...
+
+const handleVideoCall = async (doctor) => {
+  try {
+    console.log('📞 Initiating video call with:', doctor.name);
+    console.log('👨‍⚕️ Doctor data:', doctor);
+    
+    if (!isConnected) {
+      alert('Not connected to server. Please refresh the page and try again.');
+      return;
+    }
+    
+    // Use the doctor's database ID (_id) not their Clerk ID
+    const doctorId = doctor._id;
+    
+    console.log('📋 Using doctor ID:', doctorId);
+    
+    // Navigate to call page with doctor ID
+    navigate(`/call/${doctorId}`);
+    
+    // Also initiate the call through socket
+    initiateCall(doctorId, doctor.name);
+    
+  } catch (error) {
+    console.error('❌ Error initiating call:', error);
+    alert('Failed to start video call. Please try again.');
+  }
+};
+
+// ... rest of your existing DoctorsPage code ...
+
+
 const DoctorsPage = () => {
   const [doctors, setDoctors] = useState([]);
   const [filteredDoctors, setFilteredDoctors] = useState([]);
