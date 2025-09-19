@@ -1,12 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth, useUser, SignOutButton } from '@clerk/clerk-react';
-import { useSocket } from '../../context/SocketContext';
 
 const Header = () => {
   const { isSignedIn } = useAuth();
   const { user } = useUser();
-  const { isConnected } = useSocket();
 
   return (
     <header className="bg-white shadow-lg border-b">
@@ -18,22 +16,14 @@ const Header = () => {
             <span className="text-xl font-bold text-gray-800">MedConsult</span>
           </Link>
 
-          {/* Navigation & Status */}
+          {/* Navigation */}
           <div className="flex items-center space-x-6">
-            {/* Connection Status */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-              <span className="text-sm text-gray-600">
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-
             {/* User Info */}
             {isSignedIn ? (
               <>
                 <Link 
                   to="/dashboard"
-                  className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
+                  className="hidden md:flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
                 >
                   <span>🏠</span>
                   <span>Dashboard</span>
@@ -41,28 +31,36 @@ const Header = () => {
                 
                 <Link 
                   to="/doctors"
-                  className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
+                  className="hidden md:flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
                 >
                   <span>👨‍⚕️</span>
                   <span>Doctors</span>
                 </Link>
                 
                 <Link 
-                  to="/profile"
-                  className="flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
+                  to="/consultations"
+                  className="hidden md:flex items-center space-x-2 text-gray-600 hover:text-blue-500 transition-colors"
                 >
-                  <img
-                    src={user?.imageUrl}
-                    alt={user?.fullName}
-                    className="w-6 h-6 rounded-full"
-                  />
-                  <span>{user?.firstName || user?.fullName}</span>
+                  <span>📅</span>
+                  <span>Consultations</span>
                 </Link>
+                
+                <div className="flex items-center space-x-2 text-gray-600">
+                  <img
+                    src={user?.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullName || 'User')}&background=10b981&color=fff&size=40`}
+                    alt={user?.fullName || 'User'}
+                    className="w-6 h-6 rounded-full"
+                    onError={(e) => {
+                      e.target.src = `https://ui-avatars.com/api/?name=User&background=10b981&color=fff&size=40`;
+                    }}
+                  />
+                  <span className="hidden md:inline">{user?.firstName || user?.fullName || 'User'}</span>
+                </div>
                 
                 <SignOutButton>
                   <button className="flex items-center space-x-2 text-gray-600 hover:text-red-500 transition-colors">
                     <span>🚪</span>
-                    <span>Logout</span>
+                    <span className="hidden md:inline">Logout</span>
                   </button>
                 </SignOutButton>
               </>
@@ -84,6 +82,37 @@ const Header = () => {
             )}
           </div>
         </div>
+
+        {/* Mobile Navigation Menu */}
+        {isSignedIn && (
+          <div className="md:hidden mt-3 pt-3 border-t">
+            <div className="flex justify-around">
+              <Link 
+                to="/dashboard"
+                className="flex flex-col items-center space-y-1 text-gray-600 hover:text-blue-500 transition-colors"
+              >
+                <span>🏠</span>
+                <span className="text-xs">Dashboard</span>
+              </Link>
+              
+              <Link 
+                to="/doctors"
+                className="flex flex-col items-center space-y-1 text-gray-600 hover:text-blue-500 transition-colors"
+              >
+                <span>👨‍⚕️</span>
+                <span className="text-xs">Doctors</span>
+              </Link>
+              
+              <Link 
+                to="/consultations"
+                className="flex flex-col items-center space-y-1 text-gray-600 hover:text-blue-500 transition-colors"
+              >
+                <span>📅</span>
+                <span className="text-xs">Consultations</span>
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
