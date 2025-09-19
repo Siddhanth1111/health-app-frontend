@@ -22,17 +22,18 @@ const handleVideoCall = async (doctor) => {
     
     console.log('📋 Using doctor ID:', doctorId);
     
-    // Navigate to call page with doctor ID
-    navigate(`/call/${doctorId}`);
-    
-    // Also initiate the call through socket
+    // Initiate the call through socket first
     initiateCall(doctorId, doctor.name);
+    
+    // The navigation to call room will happen automatically when call is accepted
+    // For now, we can navigate to a "calling" state page or stay on doctors page
     
   } catch (error) {
     console.error('❌ Error initiating call:', error);
     alert('Failed to start video call. Please try again.');
   }
 };
+
 
 // ... rest of your existing DoctorsPage code ...
 
@@ -346,5 +347,7 @@ const DoctorsPage = () => {
     </div>
   );
 };
+
+
 
 export default DoctorsPage;

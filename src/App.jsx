@@ -11,6 +11,7 @@ import DashboardPage from './pages/DashboardPage';
 import OnboardingPage from './pages/OnboardingPage';
 import DoctorsPage from './pages/DoctorsPage';
 import CallPage from './pages/CallPage';
+import CallRoomPage from './pages/CallRoomPage'; // New call room page
 import ProfilePage from './pages/ProfilePage';
 import ConsultationsPage from './pages/ConsultationsPage';
 
@@ -60,6 +61,11 @@ const AppContent = () => {
           
           <Route path="/call/:doctorId" element={
             isSignedIn ? <CallPage /> : <Navigate to="/sign-in" replace />
+          } />
+          
+          {/* New Call Room Route */}
+          <Route path="/call-room/:callRoomId" element={
+            isSignedIn ? <CallRoomPage /> : <Navigate to="/sign-in" replace />
           } />
           
           <Route path="/profile" element={

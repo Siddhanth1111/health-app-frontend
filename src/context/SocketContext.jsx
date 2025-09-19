@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import ApiService from '../services/api';
 
@@ -140,6 +141,13 @@ export const SocketProvider = ({ children }) => {
             status: 'connected'
           });
           stopRingtone();
+          
+          // Navigate to call room - this is the key fix!
+          const callRoomId = data.callRoomId;
+          console.log('📱 Navigating to call room:', callRoomId);
+          
+          // Use window.location for guaranteed navigation
+          window.location.href = `/call-room/${callRoomId}`;
         });
 
         socketInstance.on('call-rejected', (data) => {
@@ -155,6 +163,11 @@ export const SocketProvider = ({ children }) => {
           setCurrentCall(null);
           setIncomingCall(null);
           stopRingtone();
+          
+          // Navigate away from call room
+          if (window.location.pathname.includes('/call-room/')) {
+            window.location.href = '/dashboard';
+          }
         });
 
         socketInstance.on('call-failed', (data) => {
@@ -195,12 +208,11 @@ export const SocketProvider = ({ children }) => {
         setCurrentCall(null);
       }
     };
-  }, [isSignedIn, user?.id]); // Only depend on sign-in status and user ID
+  }, [isSignedIn, user?.id]);
 
   // Ringtone functions
   const playRingtone = () => {
     console.log('🔊 Playing ringtone...');
-    // Add actual audio here if needed
   };
 
   const stopRingtone = () => {
@@ -216,14 +228,6 @@ export const SocketProvider = ({ children }) => {
         userId: user.id,
         userType: typeToUse,
         userName: user.fullName || user.firstName || 'User'
-      });
-    } else {
-      console.warn('⚠️ Cannot register user - missing requirements:', {
-        socket: !!socket,
-        isConnected,
-        user: !!user,
-        userType,
-        isRegistered
       });
     }
   }, [socket, isConnected, user, userType, isRegistered]);
@@ -288,7 +292,7 @@ export const SocketProvider = ({ children }) => {
 
   const value = {
     socket,
-    isConnected: isConnected && isRegistered, // Only show connected when registered
+    isConnected: isConnected && isRegistered,
     onlineDoctors,
     incomingCall,
     currentCall,
