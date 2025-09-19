@@ -35,12 +35,20 @@ const CallRoomPage = () => {
         return;
       }
 
-      // Get current user profile
+      // Get current user profile with proper ID mapping
       const token = await user.getToken?.() || null;
       let userData;
       
       try {
         userData = await ApiService.getCurrentUser(token);
+        console.log('📋 User profile loaded:', userData);
+        
+        // Ensure we have the correct database ID
+        if (!userData._id) {
+          console.warn('⚠️ No database ID found, using Clerk ID');
+          userData._id = user.id;
+        }
+        
       } catch (err) {
         console.warn('Could not load user profile:', err);
         // Create basic user data from Clerk user
@@ -49,7 +57,7 @@ const CallRoomPage = () => {
           name: user.fullName || user.firstName || 'User',
           email: user.emailAddresses?.[0]?.emailAddress || '',
           avatar: user.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || 'User')}&background=4f46e5&color=fff&size=150`,
-          userType: 'patient' // Default assumption
+          userType: 'patient'
         };
       }
 
@@ -59,7 +67,6 @@ const CallRoomPage = () => {
       let targetUser = null;
 
       if (currentCall) {
-        // We initiated the call
         console.log('📞 Using current call data:', currentCall);
         targetUser = {
           _id: currentCall.targetUserId,
@@ -68,7 +75,6 @@ const CallRoomPage = () => {
           userType: 'doctor'
         };
       } else if (incomingCall) {
-        // We received the call
         console.log('📞 Using incoming call data:', incomingCall);
         targetUser = {
           _id: incomingCall.fromDbUserId || incomingCall.fromUserId,
@@ -77,18 +83,34 @@ const CallRoomPage = () => {
           userType: incomingCall.fromUserType || 'patient'
         };
       } else {
-        // Try to extract from call room ID
+        // Try to extract from call room ID and get actual user data
         const callParts = callRoomId.split('_');
         if (callParts.length >= 3) {
           const [, initiatorId, receiverId] = callParts;
           const targetId = initiatorId === userData._id ? receiverId : initiatorId;
           
-          targetUser = {
-            _id: targetId,
-            name: 'Participant',
-            avatar: `https://ui-avatars.com/api/?name=Participant&background=6366f1&color=fff&size=150`,
-            userType: 'unknown'
-          };
+          // Try to get actual doctor data
+          try {
+            if (targetId.length === 24) { // MongoDB ObjectId length
+              const doctorData = await ApiService.getDoctorById(targetId, token);
+              targetUser = {
+                _id: doctorData._id,
+                name: doctorData.name,
+                avatar: doctorData.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(doctorData.name)}&background=10b981&color=fff&size=150`,
+                userType: 'doctor'
+              };
+            } else {
+              throw new Error('Invalid target ID format');
+            }
+          } catch (err) {
+            console.warn('Could not load target user data:', err);
+            targetUser = {
+              _id: targetId,
+              name: 'Participant',
+              avatar: `https://ui-avatars.com/api/?name=Participant&background=6366f1&color=fff&size=150`,
+              userType: 'unknown'
+            };
+          }
         } else {
           setError('Invalid call room format');
           return;
@@ -96,8 +118,8 @@ const CallRoomPage = () => {
       }
 
       setTargetUserData(targetUser);
-      console.log('👤 Current user:', userData.name);
-      console.log('🎯 Target user:', targetUser.name);
+      console.log('👤 Current user:', userData.name, 'ID:', userData._id);
+      console.log('🎯 Target user:', targetUser.name, 'ID:', targetUser._id);
 
     } catch (err) {
       console.error('❌ Error loading call data:', err);

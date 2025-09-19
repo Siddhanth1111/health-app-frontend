@@ -24,6 +24,7 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
   const [connectionStatus, setConnectionStatus] = useState(CALL_STATUS.DISCONNECTED);
   const [callDuration, setCallDuration] = useState(0);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [isUserRegistered, setIsUserRegistered] = useState(false);
   const [debugInfo, setDebugInfo] = useState({
     hasLocalVideo: false,
     hasRemoteVideo: false,
@@ -44,16 +45,42 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
 
     setSocketConnected(socket.connected);
 
+    // Register current user for WebRTC calls
+    const registerUser = () => {
+      if (socket.connected && currentUser?._id && !isUserRegistered) {
+        console.log('📝 Registering current user for WebRTC:', currentUser);
+        socket.emit('register-user', {
+          userId: currentUser._id,
+          userType: currentUser.userType || 'patient',
+          userName: currentUser.name
+        });
+      }
+    };
+
+    registerUser();
+
     // Socket event listeners
     socket.on('connect', () => {
       console.log('✅ Socket connected in VideoCall');
       setSocketConnected(true);
+      registerUser();
     });
 
     socket.on('disconnect', () => {
       console.log('❌ Socket disconnected in VideoCall');
       setSocketConnected(false);
+      setIsUserRegistered(false);
       setConnectionStatus(CALL_STATUS.DISCONNECTED);
+    });
+
+    socket.on('user-registered', (data) => {
+      console.log('✅ User registered in VideoCall:', data);
+      setIsUserRegistered(true);
+    });
+
+    socket.on('registration-error', (error) => {
+      console.error('❌ Registration error in VideoCall:', error);
+      setIsUserRegistered(false);
     });
 
     socket.on(SOCKET_EVENTS.CALLING, handleSocketMessage);
@@ -65,16 +92,26 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
       Swal.fire('Error', `${targetUser.name} is not available`, 'error');
     });
 
+    socket.on('call-failed', (data) => {
+      console.log('❌ Call failed in VideoCall:', data);
+      Swal.fire('Call Failed', data.reason || 'Unknown error', 'error');
+      setIsCallActive(false);
+      setConnectionStatus(CALL_STATUS.DISCONNECTED);
+    });
+
     return () => {
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('user-registered');
+      socket.off('registration-error');
       socket.off(SOCKET_EVENTS.CALLING);
       socket.off(SOCKET_EVENTS.INCOMING_CALL);
       socket.off('call-response');
       socket.off('user-not-available');
+      socket.off('call-failed');
       cleanup();
     };
-  }, [socket, currentUserId, targetUser.name]);
+  }, [socket, currentUser, isUserRegistered]);
 
   // Call duration timer
   useEffect(() => {
@@ -266,6 +303,28 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
       return;
     }
 
+    // Ensure user is registered before making call
+    if (!isUserRegistered) {
+      console.log('📝 Ensuring user is registered before call...');
+      socket.emit('register-user', {
+        userId: currentUser._id,
+        userType: currentUser.userType || 'patient',
+        userName: currentUser.name
+      });
+      
+      // Wait for registration to complete
+      await new Promise(resolve => {
+        const checkRegistration = () => {
+          if (isUserRegistered) {
+            resolve();
+          } else {
+            setTimeout(checkRegistration, 100);
+          }
+        };
+        checkRegistration();
+      });
+    }
+
     const mediaStarted = await startLocalVideo();
     if (!mediaStarted) return;
 
@@ -296,9 +355,16 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
       }
     });
     
-    socket.emit(SOCKET_EVENTS.INITIATE_CALL, {
-      targetUserId: targetUserId,
-      fromUserName: currentUser.name
+    // Use the initiate-call event for backend integration
+    console.log('📞 Emitting initiate call event...');
+    console.log('👤 Current user ID:', currentUser._id);
+    console.log('🎯 Target user ID:', targetUser._id);
+    
+    socket.emit('initiate-call', {
+      targetUserId: targetUser._id,
+      fromUserId: currentUser._id,
+      fromUserName: currentUser.name,
+      fromUserType: currentUser.userType || 'patient'
     });
   };
 
@@ -613,9 +679,9 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
                   className="w-20 h-20 rounded-full border-4 border-blue-100"
                 />
                 <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-3 border-white ${
-                  socketConnected ? 'bg-green-400' : 'bg-red-400'
+                  socketConnected && isUserRegistered ? 'bg-green-400' : 'bg-red-400'
                 }`}>
-                  {socketConnected ? (
+                  {socketConnected && isUserRegistered ? (
                     <FaWifi className="text-white text-xs mt-1 ml-1" />
                   ) : (
                     <FaExclamationTriangle className="text-white text-xs mt-1 ml-1" />
@@ -636,19 +702,27 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
             <p className="text-gray-600 text-sm mb-2">
               Video call will start once you both are ready
             </p>
+            {!isUserRegistered && (
+              <p className="text-red-500 text-sm">Registering user...</p>
+            )}
           </div>
           
           <button
             onClick={initiateCall}
-            disabled={!socketConnected}
+            disabled={!socketConnected || !isUserRegistered}
             className={`w-full px-6 py-4 rounded-xl font-semibold text-lg transform transition-all duration-200 flex items-center justify-center space-x-3 ${
-              socketConnected
+              socketConnected && isUserRegistered
                 ? 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 hover:scale-105 shadow-lg hover:shadow-xl'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
           >
             <FiVideo className="text-xl" />
-            <span>{socketConnected ? `Call ${targetUser.name}` : 'Connection Required'}</span>
+            <span>
+              {socketConnected && isUserRegistered 
+                ? `Call ${targetUser.name}` 
+                : 'Connection Required'
+              }
+            </span>
           </button>
         </div>
       </div>
@@ -664,7 +738,7 @@ function VideoCall({ currentUser, targetUser, socket, onCallEnd }) {
             <div className="relative">
               <img src={currentUser.avatar} alt={currentUser.name} className="w-12 h-12 rounded-full border-2 border-blue-400" />
               <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
-                socketConnected ? 'bg-green-400' : 'bg-red-400'
+                socketConnected && isUserRegistered ? 'bg-green-400' : 'bg-red-400'
               }`}></div>
             </div>
             <div>
