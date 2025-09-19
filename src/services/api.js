@@ -5,6 +5,8 @@ class ApiService {
     const url = `${API_BASE_URL}${endpoint}`;
     
     const config = {
+      mode: 'cors',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -15,33 +17,17 @@ class ApiService {
 
     try {
       console.log(`🚀 API Request: ${options.method || 'GET'} ${url}`);
-      if (options.body) {
-        console.log('📦 Request body:', options.body);
-      }
       
       const response = await fetch(url, config);
       
       console.log(`📡 API Response: ${response.status} ${response.statusText}`);
       
-      // Get response text first
-      const responseText = await response.text();
-      console.log('📄 Raw response:', responseText);
-      
-      // Try to parse as JSON
-      let responseData;
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('❌ JSON Parse Error:', parseError);
-        throw new Error(`Invalid JSON response: ${responseText}`);
-      }
-      
       if (!response.ok) {
-        console.error(`❌ API Error: ${response.status} -`, responseData);
-        throw new Error(`HTTP ${response.status}: ${responseData.error || responseText}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       
-      return responseData;
+      const data = await response.json();
+      return data;
     } catch (error) {
       console.error(`❌ API request failed: ${endpoint}`, error);
       throw error;
@@ -51,15 +37,6 @@ class ApiService {
   // Test backend connection
   async testConnection() {
     return this.request('/test');
-  }
-
-  // Test database operations
-  async testCreatePatient() {
-    return this.request('/test/create-test-patient', { method: 'POST' });
-  }
-
-  async getAllPatients() {
-    return this.request('/test/all-patients');
   }
 
   // User related APIs
@@ -74,7 +51,6 @@ class ApiService {
 
   async updatePatientProfile(profileData, token) {
     console.log('💾 Updating patient profile:', profileData);
-    console.log('🔐 Using token:', token ? 'Present' : 'Missing');
     
     return this.request('/patients/profile', {
       method: 'POST',
@@ -115,7 +91,6 @@ class ApiService {
 
   async updateDoctorProfile(profileData, token) {
     console.log('💾 Updating doctor profile:', profileData);
-    console.log('🔐 Using token:', token ? 'Present' : 'Missing');
     
     return this.request('/doctors/profile', {
       method: 'POST',
