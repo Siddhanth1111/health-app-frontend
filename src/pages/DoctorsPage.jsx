@@ -1,13 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '@clerk/clerk-react';
 import { useSocket } from '../context/SocketContext';
-import ApiService from '../services/api';
-import Loading from '../components/common/Loading';
 
 const DoctorsPage = () => {
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { getToken } = useAuth();
   const { initiateCall, isConnected, onlineDoctors } = useSocket();
 
   useEffect(() => {
@@ -16,7 +12,8 @@ const DoctorsPage = () => {
 
   const loadDoctors = async () => {
     try {
-      const doctorsData = await ApiService.getDoctors();
+      const response = await fetch('http://localhost:3000/api/doctors');
+      const doctorsData = await response.json();
       setDoctors(doctorsData);
     } catch (error) {
       console.error('Error loading doctors:', error);
@@ -35,7 +32,7 @@ const DoctorsPage = () => {
     initiateCall(doctor._id, doctor.name);
   };
 
-  if (loading) return <Loading message="Loading doctors..." />;
+  if (loading) return <div className="p-8">Loading doctors...</div>;
 
   return (
     <div className="container mx-auto px-4 py-8">

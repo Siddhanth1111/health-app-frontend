@@ -40,7 +40,6 @@ const AppContent = () => {
         } />
       </Routes>
       
-      {/* Global incoming call modal */}
       <IncomingCallModal />
     </div>
   );

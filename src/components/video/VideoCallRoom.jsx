@@ -15,12 +15,10 @@ const VideoCallRoom = () => {
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [isAudioOn, setIsAudioOn] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
 
-  // WebRTC configuration
   const rtcConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' }
-    ]
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   };
 
   useEffect(() => {
@@ -29,14 +27,25 @@ const VideoCallRoom = () => {
     initializeCall();
     setupSocketListeners();
 
+    // Call duration timer
+    const timer = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+
     return () => {
+      clearInterval(timer);
       cleanup();
     };
   }, [socket, roomId]);
 
+  const formatDuration = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const initializeCall = async () => {
     try {
-      // Get user media
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true
@@ -47,16 +56,13 @@ const VideoCallRoom = () => {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Create peer connection
       const peerConnection = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = peerConnection;
 
-      // Add local stream tracks
       stream.getTracks().forEach(track => {
         peerConnection.addTrack(track, stream);
       });
 
-      // Handle incoming stream
       peerConnection.ontrack = (event) => {
         console.log('📹 Received remote stream');
         if (remoteVideoRef.current) {
@@ -65,7 +71,6 @@ const VideoCallRoom = () => {
         }
       };
 
-      // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
           socket.emit('webrtc-signal', {
@@ -76,7 +81,6 @@ const VideoCallRoom = () => {
         }
       };
 
-      // Handle connection state
       peerConnection.onconnectionstatechange = () => {
         console.log('Connection state:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'connected') {
@@ -84,7 +88,6 @@ const VideoCallRoom = () => {
         }
       };
 
-      // Create and send offer (first person to join)
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       
@@ -189,10 +192,10 @@ const VideoCallRoom = () => {
       <div className="bg-gray-800 text-white p-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-semibold">
-            Video Call {isConnected ? '- Connected' : '- Connecting...'}
+            📞 Video Call {isConnected ? '- Connected' : '- Connecting...'}
           </h1>
-          <div className="text-sm">
-            Room: {roomId}
+          <div className="text-lg font-mono">
+            {formatDuration(callDuration)}
           </div>
         </div>
       </div>
@@ -210,6 +213,14 @@ const VideoCallRoom = () => {
           <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white px-3 py-1 rounded">
             {currentCall.participants?.doctor?.name || currentCall.participants?.patient?.name || 'Remote'}
           </div>
+          {!isConnected && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-white text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+                <p>Connecting to call...</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Local Video */}
@@ -220,6 +231,7 @@ const VideoCallRoom = () => {
             playsInline
             muted
             className="w-full h-full object-cover bg-gray-700 border-2 border-gray-600"
+            style={{ transform: 'scaleX(-1)' }}
           />
           <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
             You
@@ -228,25 +240,32 @@ const VideoCallRoom = () => {
       </div>
 
       {/* Controls */}
-      <div className="bg-gray-800 p-4">
+      <div className="bg-gray-800 p-6">
         <div className="flex justify-center space-x-6">
           <button
             onClick={toggleAudio}
-            className={`p-3 rounded-full ${isAudioOn ? 'bg-gray-600' : 'bg-red-600'} hover:opacity-80`}
+            className={`p-4 rounded-full text-2xl ${
+              isAudioOn ? 'bg-gray-600 hover:bg-gray-700' : 'bg-red-600 hover:bg-red-700'
+            } transition-colors`}
+            title={isAudioOn ? 'Mute' : 'Unmute'}
           >
             {isAudioOn ? '🎤' : '🔇'}
           </button>
           
           <button
             onClick={toggleVideo}
-            className={`p-3 rounded-full ${isVideoOn ? 'bg-gray-600' : 'bg-red-600'} hover:opacity-80`}
+            className={`p-4 rounded-full text-2xl ${
+              isVideoOn ? 'bg-gray-600 hover:bg-gray-700' : 'bg-red-600 hover:bg-red-700'
+            } transition-colors`}
+            title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
           >
             {isVideoOn ? '📹' : '📵'}
           </button>
           
           <button
             onClick={handleEndCall}
-            className="p-3 rounded-full bg-red-600 hover:bg-red-700"
+            className="p-4 rounded-full bg-red-600 hover:bg-red-700 text-2xl transition-colors"
+            title="End call"
           >
             📞
           </button>
