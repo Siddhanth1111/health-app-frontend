@@ -12,22 +12,23 @@ const OnboardingPage = () => {
     if (!user) return;
     
     setIsLoading(true);
+    setSelectedRole(role);
+    
     try {
-      // Update user metadata with selected role
-      await user.update({
-        publicMetadata: {
-          ...user.publicMetadata,
-          userType: role
-        }
-      });
-
-      console.log('✅ User role updated:', role);
+      // Store user type in localStorage as a fallback
+      localStorage.setItem('userType', role);
+      localStorage.setItem(`userType_${user.id}`, role);
+      
+      console.log('✅ User role stored locally:', role);
+      
+      // Add a small delay to show the loading state
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Navigate to dashboard after role selection
       navigate('/dashboard');
     } catch (error) {
-      console.error('❌ Error updating user role:', error);
-      alert('Failed to update user role. Please try again.');
+      console.error('❌ Error storing user role:', error);
+      alert('Failed to set user role. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -69,6 +70,12 @@ const OnboardingPage = () => {
                 </p>
               </div>
             </div>
+            {selectedRole === 'patient' && isLoading && (
+              <div className="mt-3 flex items-center text-blue-600">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                <span className="text-sm">Setting up...</span>
+              </div>
+            )}
           </button>
 
           <button
@@ -91,14 +98,20 @@ const OnboardingPage = () => {
                 </p>
               </div>
             </div>
+            {selectedRole === 'doctor' && isLoading && (
+              <div className="mt-3 flex items-center text-blue-600">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                <span className="text-sm">Setting up...</span>
+              </div>
+            )}
           </button>
         </div>
 
         {isLoading && (
           <div className="mt-6 text-center">
-            <div className="inline-flex items-center">
+            <div className="inline-flex items-center text-gray-600">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
-              <span className="text-gray-600">Setting up your account...</span>
+              <span>Setting up your account as {selectedRole}...</span>
             </div>
           </div>
         )}

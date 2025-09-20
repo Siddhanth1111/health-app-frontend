@@ -13,6 +13,18 @@ export const useSocket = () => {
   return context;
 };
 
+// Helper function to get user type
+const getUserType = (user) => {
+  // Try to get from Clerk metadata first
+  if (user?.publicMetadata?.userType) {
+    return user.publicMetadata.userType;
+  }
+  
+  // Fallback to localStorage
+  const storedType = localStorage.getItem(`userType_${user?.id}`) || localStorage.getItem('userType');
+  return storedType;
+};
+
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -20,20 +32,28 @@ export const SocketProvider = ({ children }) => {
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCall, setCurrentCall] = useState(null);
   const [onlineDoctors, setOnlineDoctors] = useState(new Set());
+  const [userType, setUserType] = useState(null);
 
   const { user } = useUser();
   const { isSignedIn } = useAuth();
   const navigate = useNavigate();
 
+  // Check user type on user change
   useEffect(() => {
-    if (!isSignedIn || !user) return;
-
-    // Check if user needs onboarding (no userType in metadata)
-    if (!user.publicMetadata?.userType) {
-      console.log('👤 User needs onboarding, redirecting...');
-      navigate('/onboarding');
-      return;
+    if (user) {
+      const currentUserType = getUserType(user);
+      setUserType(currentUserType);
+      
+      if (!currentUserType) {
+        console.log('👤 User needs onboarding, redirecting...');
+        navigate('/onboarding');
+        return;
+      }
     }
+  }, [user, navigate]);
+
+  useEffect(() => {
+    if (!isSignedIn || !user || !userType) return;
 
     const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
     console.log('🔌 Connecting to:', socketUrl);
@@ -58,12 +78,10 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(false);
       setIsRegistered(false);
     };
-  }, [isSignedIn, user, navigate]);
+  }, [isSignedIn, user, userType]);
 
   useEffect(() => {
-    if (socket && isConnected && user && !isRegistered && user.publicMetadata?.userType) {
-      const userType = user.publicMetadata.userType;
-      
+    if (socket && isConnected && user && userType && !isRegistered) {
       console.log('📝 Registering user:', user.fullName, 'as', userType);
       
       socket.emit('register-user', {
@@ -72,7 +90,7 @@ export const SocketProvider = ({ children }) => {
         userName: user.fullName || user.firstName || 'User'
       });
     }
-  }, [socket, isConnected, user, isRegistered]);
+  }, [socket, isConnected, user, userType, isRegistered]);
 
   useEffect(() => {
     if (!socket) return;
@@ -193,6 +211,7 @@ export const SocketProvider = ({ children }) => {
     incomingCall,
     currentCall,
     onlineDoctors,
+    userType,
     initiateCall,
     acceptCall,
     rejectCall,

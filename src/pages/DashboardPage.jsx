@@ -6,10 +6,9 @@ import { useSocket } from '../context/SocketContext';
 const DashboardPage = () => {
   const { user } = useUser();
   const navigate = useNavigate();
-  const { isConnected, isRegistered } = useSocket();
+  const { isConnected, isRegistered, userType } = useSocket();
 
-  const userType = user?.publicMetadata?.userType;
-
+  // If no userType, redirect to onboarding
   if (!userType) {
     navigate('/onboarding');
     return null;
@@ -57,7 +56,7 @@ const DashboardPage = () => {
           </h2>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-blue-800">
-              You are registered as a <strong>{userType}</strong>. 
+              You are registered as a <strong className="capitalize">{userType}</strong>. 
               {userType === 'patient' 
                 ? ' You can book appointments and consult with doctors.' 
                 : ' You can manage appointments and provide consultations.'
@@ -138,6 +137,26 @@ const DashboardPage = () => {
               </div>
             </div>
           </div>
+
+          {/* Reset Role Button (for testing) */}
+          <div 
+            onClick={() => {
+              localStorage.removeItem('userType');
+              localStorage.removeItem(`userType_${user?.id}`);
+              navigate('/onboarding');
+            }}
+            className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-6 hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center">
+              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🔄</span>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-lg font-medium text-gray-700">Reset Role</h3>
+                <p className="text-sm text-gray-500">Change your user type</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Status */}
@@ -155,6 +174,12 @@ const DashboardPage = () => {
                 <div className={`w-3 h-3 rounded-full ${isRegistered ? 'bg-green-400' : 'bg-red-400'}`}></div>
                 <span className="text-sm">
                   Registration: <strong>{isRegistered ? 'Registered' : 'Not Registered'}</strong>
+                </span>
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+                <span className="text-sm">
+                  User Type: <strong className="capitalize">{userType}</strong>
                 </span>
               </div>
             </div>
