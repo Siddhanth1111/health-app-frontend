@@ -28,6 +28,13 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (!isSignedIn || !user) return;
 
+    // Check if user needs onboarding (no userType in metadata)
+    if (!user.publicMetadata?.userType) {
+      console.log('👤 User needs onboarding, redirecting...');
+      navigate('/onboarding');
+      return;
+    }
+
     const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
     console.log('🔌 Connecting to:', socketUrl);
 
@@ -51,11 +58,11 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(false);
       setIsRegistered(false);
     };
-  }, [isSignedIn, user]);
+  }, [isSignedIn, user, navigate]);
 
   useEffect(() => {
-    if (socket && isConnected && user && !isRegistered) {
-      const userType = user.publicMetadata?.userType || 'patient';
+    if (socket && isConnected && user && !isRegistered && user.publicMetadata?.userType) {
+      const userType = user.publicMetadata.userType;
       
       console.log('📝 Registering user:', user.fullName, 'as', userType);
       

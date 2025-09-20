@@ -6,6 +6,7 @@ import { SocketProvider } from './context/SocketContext';
 import HomePage from './pages/HomePage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
+import OnboardingPage from './pages/OnboardingPage';
 import DashboardPage from './pages/DashboardPage';
 import DoctorsPage from './pages/DoctorsPage';
 import VideoCallRoom from './components/video/VideoCallRoom';
@@ -28,6 +29,9 @@ const AppContent = () => {
         } />
         <Route path="/sign-up/*" element={
           isSignedIn ? <Navigate to="/dashboard" replace /> : <SignUpPage />
+        } />
+        <Route path="/onboarding" element={
+          isSignedIn ? <OnboardingPage /> : <Navigate to="/sign-in" replace />
         } />
         <Route path="/dashboard" element={
           isSignedIn ? <DashboardPage /> : <Navigate to="/sign-in" replace />
